@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Portal Absensi Karyawan</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 15px; text-align: center; background-color: #f4f6f9; margin: 0; }
+    .card { background: #ffffff; padding: 20px; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-width: 420px; margin: 20px auto; text-align: left; }
+    label { font-size: 13px; font-weight: bold; color: #333; display: block; margin-top: 10px; }
+    input, select, button { width: 100%; padding: 12px; margin-top: 5px; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; font-size: 14px; }
+    video { width: 100%; border-radius: 8px; background: #000; margin-top: 8px; height: 260px; object-fit: cover; display: none; }
+    #canvas { display: none; }
+    .btn-cam { background-color: #007bff; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 12px; }
+    .btn-in { background-color: #28a745; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 12px; }
+    .btn-out { background-color: #dc3545; color: white; border: none; font-weight: bold; cursor: pointer; margin-top: 12px; }
+    button:disabled { background-color: #cccccc !important; cursor: not-allowed; }
+    #status { margin-top: 12px; font-weight: bold; font-size: 13px; text-align: center; }
+    #lokasiInfo { font-size: 11px; color: #666; margin-top: 6px; text-align: center; }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <h2 style="margin-top:0; text-align:center; color:#2c3e50;">Absensi Karyawan</h2>
+  
+  <label>Nama Lengkap:</label>
+  <input type="text" id="namaKaryawan" placeholder="Masukkan nama Anda" required>
+  
+  <label>Jenis Absen:</label>
+  <select id="jenisAbsen">
+    <option value="Clock In">Clock In (Masuk)</option>
+    <option value="Clock Out">Clock Out (Pulang)</option>
+  </select>
+  
+  <!-- Tombol Manual untuk Membuka Kamera -->
+  <button type="button" class="btn-cam" id="btnBukaKamera" onclick="bukaKamera()">📷 BUKA KAMERA & GPS</button>
+  
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas"></canvas>
+  
+  <p id="lokasiInfo">Silakan klik tombol Buka Kamera terlebih dahulu.</p>
+  
+  <button id="btnKirim" class="btn-in" onclick="ambilFotoDanKirim()" style="display:none;">AMBIL FOTO & ABSEN</button>
+  <div id="status"></div>
+</div>
+
+<script>
+  // ⚠️ PENTING: Ganti URL di bawah ini dengan URL Web App dari Google Apps Script Anda
+  const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw.../exec";
+
+  let video = document.getElementById('video');
+  let canvas = document.getElementById('canvas');
+  let lokasiTeks = "Belum diambil";
+  let mediaStream = null;
+
+  // Deteksi Zona Waktu Otomatis (WIB / WITA / WIT)
+  function getZonaWaktuInfo() {
+    let now = new Date();
+    let offset = -now.getTimezoneOffset() / 60; 
+    let zonaLabel = "WIB";
+    if (offset === 8) zonaLabel = "WITA";
+    if (offset === 9) zonaLabel = "WIT";
+    if (offset === 7) zonaLabel = "WIB";
+    
+    return {
+      jamLokal: now.toLocaleTimeString("id-ID", { hour12: false }) + " " + zonaLabel,
+      tanggalLokal: now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, '0') + "-" + String(now.getDate()).padStart(2, '0'),
+      labelZona: zonaLabel
+    };
+  }
+
+  // Ubah warna tombol berdasarkan Clock In / Out
+  document.getElementById('jenisAbsen').addEventListener('change', function() {
+    let btn = document.getElementById('btnKirim');
+    btn.className = (this.value === 'Clock In') ? "btn-in" : "btn-out";
+  });
+
+  // Fungsi untuk Membuka Kamera & GPS
+  function bukaKamera() {
+    let nama = document.getElementById('namaKaryawan').value.trim();
+    if (!nama) {
+      alert("Harap isi Nama Karyawan terlebih dahulu sebelum membuka kamera!");
+      return;
+    }
+
+    document.getElementById('status').innerText = "Meminta izin kamera & GPS...";
+
+    let constraints = {
+      video: { 
+        facingMode: "user",
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      }, 
+      audio: false 
+    };
+
+    // 1. Akses Kamera Depan
+    navigator.mediaDevices.getUserMedia(constraints)
+      .then(stream => {
+        mediaStream = stream;
+        video.srcObject = stream;
+        video.style.display = "block"; 
+        document.getElementById('btnBukaKamera').style.display = "none"; 
+        document.getElementById('btnKirim').style.display = "block"; 
+        document.getElementById('status').innerText = "";
+      })
+      .catch(err => {
+        console.error(err);
+        document.getElementById('status').style.color = "red";
+        document.getElementById('status').innerText = "Gagal membuka kamera. Pastikan izin kamera diizinkan di browser.";
+      });
+
+    // 2. Akses Koordinat GPS
+    let infoZona = getZonaWaktuInfo();
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(pos => {
+        let currentLat = pos.coords.latitude.toFixed(6);
+        let currentLng = pos.coords.longitude.toFixed(6);
+        lokasiTeks = `Lat: ${currentLat}, Lng: ${currentLng}`;
+        document.getElementById('lokasiInfo').innerText = `Zona: ${infoZona.labelZona} | GPS: ${lokasiTeks}`;
+      }, err => {
+        lokasiTeks = "GPS Tidak Aktif / Ditolak";
+        document.getElementById('lokasiInfo').innerText = `Zona: ${infoZona.labelZona} | ${lokasiTeks}`;
+      }, { enableHighAccuracy: true });
+    }
+  }
+
+  // 3. Proses Tangkap Foto, Beri Watermark & Kirim ke Backend
+  function ambilFotoDanKirim() {
+    let nama = document.getElementById('namaKaryawan').value.trim();
+    let jenisAbsen = document.getElementById('jenisAbsen').value;
+    
+    let btn = document.getElementById('btnKirim');
+    let statusDiv = document.getElementById('status');
+    btn.disabled = true;
+    statusDiv.innerText = "Memproses & mengunggah data...";
+
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    let ctx = canvas.getContext('2d');
+
+    // Gambar frame video ke canvas
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+    let waktuInfo = getZonaWaktuInfo();
+    let w = canvas.width;
+    let h = canvas.height;
+    
+    // Kotak hitam transparan untuk latar belakang teks watermark
+    ctx.fillStyle = "rgba(0, 0, 0, 0.65)";
+    ctx.fillRect(0, h - 85, w, 85);
+
+    // Teks Watermark
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 15px Arial";
+    ctx.fillText("Nama: " + nama + " (" + jenisAbsen + ")", 15, h - 60);
+    ctx.font = "13px Arial";
+    ctx.fillText("Waktu: " + waktuInfo.tanggalLokal + " " + waktuInfo.jamLokal, 15, h - 38);
+    ctx.fillText("GPS: " + lokasiTeks, 15, h - 15);
+
+    // Konversi gambar ke format Base64 JPEG
+    let imageDataBase64 = canvas.toDataURL('image/jpeg', 0.8);
+
+    // Matikan aliran kamera
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+    }
+
+    // Kirim data ke Google Apps Script menggunakan Fetch API
+    fetch(SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify({
+        nama: nama,
+        jenisAbsen: jenisAbsen,
+        image: imageDataBase64,
+        lokasi: lokasiTeks,
+        jamLokal: waktuInfo.jamLokal,
+        tanggalLokal: waktuInfo.tanggalLokal
+      })
+    })
+    .then(() => {
+      statusDiv.style.color = "green";
+      statusDiv.innerText = jenisAbsen + " (" + waktuInfo.labelZona + ") berhasil dicatat!";
+      setTimeout(() => {
+        location.reload(); // Muat ulang halaman otomatis setelah 3 detik
+      }, 3000);
+    })
+    .catch(error => {
+      statusDiv.style.color = "red";
+      statusDiv.innerText = "Gagal mengirim: " + error;
+      btn.disabled = false;
+    });
+  }
+</script>
+
+</body>
+</html>
